@@ -145,5 +145,146 @@ def import_data():
         
     print(f"Successfully migrated {len(res.json())} outlets.")
 
+def clean_ram(val):
+    val = str(val).strip().upper()
+    if val == 'NAN' or not val: return '8GB'
+    if 'GB' not in val:
+        import re
+        m = re.search(r'(\d+)', val)
+        if m:
+            val = m.group(1) + 'GB'
+        else:
+            return '8GB'
+    
+    valid_rams = {'4GB', '8GB', '16GB', '32GB', '128GB', '256GB'}
+    if val in valid_rams:
+        return val
+    return '8GB'
+
+def clean_storage(val):
+    val = str(val).strip().upper()
+    if val == 'NAN' or not val: return None
+    import re
+    m = re.search(r'(\d+)', val)
+    if m:
+        num = int(m.group(1))
+        if num in [120, 128]: return '128GB'
+        if num in [240, 250, 256]: return '256GB'
+        if num in [500, 512]: return '512GB'
+        if num in [1000, 1]: return '1TB'
+        if num in [2000, 2]: return '2TB+' 
+        if num <= 4: return '4GB'
+        if num <= 8: return '8GB'
+        if num <= 16: return '16GB'
+        if num <= 32: return '32GB'
+    valid_storage = {'4GB', '8GB', '16GB', '32GB', '128GB', '256GB', '512GB', '1TB', '2TB+'}
+    if val in valid_storage: return val
+    return None
+
+def clean_internet(val):
+    val = str(val).strip().lower()
+    if val == 'nan' or not val: return None
+    if 'dongle' in val: return 'Wifi Dongle'
+    if 'wifi' in val: return 'Wi-Fi'
+    if 'lan' in val: return 'LAN'
+    if 'sim' in val or '4g' in val: return '4G SIM'
+    return None
+
+def import_media_players():
+    print("\nReading media players...")
+    mp_df = pd.read_csv("1 Devices Tracker(Media Player).csv", header=1)
+    
+    def get_item_code(val):
+        val = str(val).strip()
+        if not val or val.lower() == 'n/a' or val.lower() == 'nan':
+            return 'MHD-MP'
+        return val
+        
+    mp_df['clean_item_code'] = mp_df['Item Code'].apply(get_item_code)
+    
+    unique_items = mp_df['clean_item_code'].unique()
+    catalog_payload = [{"item_code": ic, "type": "hardware", "description": "Base Media Player Unit"} for ic in unique_items]
+        
+    print(f"Seeding {len(catalog_payload)} base catalog items...")
+    res = requests.post(f"{API_BASE}/catalog/bulk", json=catalog_payload)
+    if res.status_code not in (200, 201):
+        print("Failed to bulk insert catalog items:", res.text)
+        sys.exit(1)
+    print("Successfully seeded catalog items.")
+
+    def is_valid_sku(val):
+        val = str(val).strip()
+        return bool(val and val.lower() != 'nan' and '*' not in val)
+
+    # Filter out historical duplicates for valid hardcoded SKUs keeping the last entry
+    valid_sku_mask = mp_df['SKU'].apply(is_valid_sku)
+    valid_df = mp_df[valid_sku_mask].drop_duplicates(subset=['SKU'], keep='last')
+    invalid_df = mp_df[~valid_sku_mask]
+    
+    # Recombine the dataframes
+    mp_df = pd.concat([valid_df, invalid_df]).reset_index(drop=True)
+
+    def clean_sku(val, idx):
+        val = str(val).strip()
+        if not val or val.lower() == 'nan' or '*' in val:
+            return f"GEN-MP-2026-{idx:03d}"
+        return val
+        
+    def clean_status(val):
+        val = str(val).strip().lower()
+        if val == 'assigned': return 'assigned'
+        return 'unassign'
+        
+    players = []
+    for idx, row in mp_df.iterrows():
+        sku = clean_sku(row['SKU'], idx + 1)
+        state = clean_status(row['Status'])
+        item_code = row['clean_item_code']
+        
+        processor = str(row['CPU']).strip() if pd.notna(row['CPU']) else None
+        if processor and processor.lower() == 'nan': processor = None
+        
+        anydesk = str(row['Anydesk']).strip() if pd.notna(row['Anydesk']) else None
+        if anydesk and anydesk.lower() == 'nan': anydesk = None
+        if anydesk and anydesk.lower() == 'n/a': anydesk = None
+        
+        pw = str(row['P/w']).strip() if pd.notna(row['P/w']) else None
+        if pw and pw.lower() == 'nan': pw = None
+        if pw and pw.lower() == 'n/a': pw = None
+        
+        tv = str(row['Teamviewer']).strip() if pd.notna(row['Teamviewer']) else None
+        if tv and tv.lower() == 'nan': tv = None
+        if tv and tv.lower() == 'n/a': tv = None
+        
+        internet_val = None
+        if 'Internet' in row and pd.notna(row['Internet']):
+            internet_val = clean_internet(row['Internet'])
+            
+        players.append({
+            "sku": sku,
+            "item_code": item_code,
+            "state": state,
+            "is_faulty": False,
+            "maxis_centre_id": None,
+            "specs": {
+                "processor": processor,
+                "ram": clean_ram(row['RAM']),
+                "storage": clean_storage(row['Storage']),
+                "internet": internet_val,
+                "anydesk_id": anydesk,
+                "anydesk_password": pw,
+                "teamviewer_id": tv
+            }
+        })
+        
+    print(f"Migrating {len(players)} media players...")
+    res = requests.post(f"{API_BASE}/assets/media-players/bulk", json=players)
+    if res.status_code not in (200, 201):
+        print("Failed to bulk insert media players:", res.text)
+        sys.exit(1)
+        
+    print(f"Successfully migrated {len(res.json())} media players.")
+
 if __name__ == "__main__":
     import_data()
+    import_media_players()

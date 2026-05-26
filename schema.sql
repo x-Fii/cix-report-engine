@@ -173,7 +173,7 @@ CREATE TABLE display_licenses (
 -- -----------------------------------------------------------------------------
 -- COMMERCIAL & OPERATIONAL WORKFLOWS
 -- -----------------------------------------------------------------------------
-DROP TABLE IF EXISTS sr_photos, sr_hardware, service_reports, do_assigned_skus, do_items, delivery_orders, sales_orders, quotation_items, quotations, procurement_document_references;
+DROP TABLE IF EXISTS sr_photos, sr_hardware, service_reports, tickets, do_assigned_skus, do_items, delivery_orders, sales_orders, quotation_items, quotations, procurement_document_references;
 
 CREATE TABLE procurement_document_references (
     doc_ref_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -282,10 +282,25 @@ CREATE TABLE do_assigned_skus (
     FOREIGN KEY (sku_id) REFERENCES asset_skus(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB;
 
+CREATE TABLE tickets (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    ticket_no VARCHAR(50) UNIQUE NOT NULL, -- e.g., 'TCK-2026-0001'
+    maxis_centre_id INT NOT NULL,
+    category ENUM('Signal Loss', 'Hardware Crash', 'Screen Damage', 'Maintenance') NOT NULL,
+    priority ENUM('Low', 'Medium', 'High', 'Critical') DEFAULT 'Medium',
+    status ENUM('open', 'assigned', 'in_progress', 'resolved', 'closed') DEFAULT 'open',
+    description TEXT,
+    created_by INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (maxis_centre_id) REFERENCES outlets(maxis_centre_id),
+    FOREIGN KEY (created_by) REFERENCES users(id)
+) ENGINE=InnoDB;
+
 CREATE TABLE service_reports (
     id INT AUTO_INCREMENT PRIMARY KEY,
     sr_no VARCHAR(50) UNIQUE NOT NULL,
     do_id INT NOT NULL,
+    ticket_id INT NULL,
     wo_number VARCHAR(50),
     remedy_number VARCHAR(50),
     client_company VARCHAR(255) NOT NULL,
@@ -304,7 +319,8 @@ CREATE TABLE service_reports (
     created_by INT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (do_id) REFERENCES delivery_orders(id) ON DELETE RESTRICT,
-    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
+    FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
 CREATE TABLE sr_hardware (

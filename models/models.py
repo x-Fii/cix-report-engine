@@ -1,6 +1,48 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Date, Enum, TIMESTAMP, func, Boolean
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Date, Enum, TIMESTAMP, func, Boolean, Numeric
 from sqlalchemy.orm import relationship
 from config.database import Base
+
+class CatalogItem(Base):
+    __tablename__ = "catalog_items"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    item_code = Column(String(50), unique=True, nullable=False)
+    type = Column(Enum('hardware', 'service', 'bulk'), nullable=False)
+    description = Column(Text, nullable=False)
+    default_uom = Column(String(20), default='UNIT')
+    default_unit_price = Column(Numeric(12, 2), nullable=False, default=0.00)
+    default_tax_code = Column(String(10), default='S')
+    active = Column(Boolean, default=True)
+
+class AssetSku(Base):
+    __tablename__ = "asset_skus"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    sku = Column(String(50), unique=True, nullable=False)
+    item_code = Column(String(50), ForeignKey("catalog_items.item_code", ondelete="RESTRICT"), nullable=False)
+    type = Column(Enum('MP','TV','RM','SSD'), nullable=False)
+    state = Column(Enum('unassign','assigned','deployed','to be disposed','returned_supplier','disposed'), nullable=False, default='unassign')
+    is_faulty = Column(Boolean, default=False)
+    maxis_centre_id = Column(Integer, ForeignKey("outlets.maxis_centre_id", ondelete="SET NULL"), nullable=True)
+    installed_at = Column(DateTime, nullable=True)
+    
+    pc_specs = relationship("AssetPcSpec", back_populates="sku_rel", uselist=False)
+    
+class AssetPcSpec(Base):
+    __tablename__ = "asset_pc_specs"
+    
+    sku_id = Column(Integer, ForeignKey("asset_skus.id", ondelete="CASCADE"), primary_key=True)
+    processor = Column(String(255), nullable=True)
+    ram = Column(Enum('4GB', '8GB', '16GB', '32GB', '128GB', '256GB'), nullable=True)
+    ram_ddr = Column(Enum('DDR3', 'DDR4', 'DDR5', 'DDR6', 'DDR7'), nullable=True)
+    storage = Column(Enum('4GB', '8GB', '16GB', '32GB', '128GB', '256GB', '512GB', '1TB', '2TB+'), nullable=True)
+    internet = Column(Enum('LAN', 'Wi-Fi', 'Wifi Dongle', '4G SIM'), nullable=True)
+    anydesk_id = Column(String(50), nullable=True)
+    anydesk_password = Column(String(100), nullable=True)
+    teamviewer_id = Column(String(50), nullable=True)
+    cix_pic = Column(String(255), nullable=True)
+    
+    sku_rel = relationship("AssetSku", back_populates="pc_specs")
 
 class Region(Base):
     __tablename__ = "regions"
@@ -78,12 +120,29 @@ class Upload(Base):
     
     service_reports = relationship("ServiceReport", back_populates="signature_rel")
 
+class Ticket(Base):
+    __tablename__ = "tickets"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ticket_no = Column(String(50), unique=True, nullable=False)
+    maxis_centre_id = Column(Integer, ForeignKey("outlets.maxis_centre_id"), nullable=False)
+    category = Column(Enum('Signal Loss', 'Hardware Crash', 'Screen Damage', 'Maintenance'), nullable=False)
+    priority = Column(Enum('Low', 'Medium', 'High', 'Critical'), default='Medium')
+    status = Column(Enum('open', 'assigned', 'in_progress', 'resolved', 'closed'), default='open')
+    description = Column(Text, nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    
+    outlet_rel = relationship("Outlet")
+    creator_rel = relationship("User")
+
 class ServiceReport(Base):
     __tablename__ = "service_reports"
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     sr_no = Column(String(50), unique=True, nullable=False)
     do_id = Column(Integer, ForeignKey("delivery_orders.id", ondelete="RESTRICT"), nullable=False)
+    ticket_id = Column(Integer, ForeignKey("tickets.id", ondelete="SET NULL"), nullable=True)
     wo_number = Column(String(50), nullable=True)
     remedy_number = Column(String(50), nullable=True)
     client_company = Column(String(255), nullable=False)
@@ -104,6 +163,7 @@ class ServiceReport(Base):
     
     do_rel = relationship("DeliveryOrder", back_populates="service_reports")
     signature_rel = relationship("Upload", back_populates="service_reports")
+    hardware_swaps = relationship("SrHardware", back_populates="report_rel", cascade="all, delete-orphan")
 
 class User(Base):
     __tablename__ = "users"
@@ -131,3 +191,17 @@ class UserRole(Base):
     
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     role_id = Column(Integer, ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True)
+
+class SrHardware(Base):
+    __tablename__ = "sr_hardware"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    sr_id = Column(Integer, ForeignKey("service_reports.id", ondelete="CASCADE"), nullable=False)
+    direction = Column(Enum('removed', 'installed'), nullable=False)
+    sku_id = Column(Integer, ForeignKey("asset_skus.id", ondelete="RESTRICT"), nullable=False)
+    item_code = Column(String(50), nullable=False)
+    reason = Column(Text, nullable=True)
+    is_faulty = Column(Boolean, default=False)
+    
+    report_rel = relationship("ServiceReport", back_populates="hardware_swaps")
+    sku_rel = relationship("AssetSku")
