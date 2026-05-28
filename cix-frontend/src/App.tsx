@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import apiClient from './api/client';
 import type { Ticket } from './types/operations';
+import { ServiceReportModal } from './components/ServiceReportModal';
 import './App.css';
 
 const PriorityBadge: React.FC<{ priority: string }> = ({ priority }) => {
@@ -22,7 +23,7 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
   if (status === 'open') styles = 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
   else if (status === 'assigned') styles = 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30';
   else if (status === 'in_progress') styles = 'bg-sky-500/20 text-sky-400 border border-sky-500/30';
-  else if (status === 'resolved') styles = 'bg-gray-500/20 text-gray-400 border border-gray-500/30 line-through';
+  else if (status === 'resolved') styles = 'bg-slate-700/40 text-slate-500 border border-slate-800 line-through';
   else if (status === 'closed') styles = 'bg-zinc-800 text-zinc-500 border border-zinc-700';
 
   return (
@@ -36,24 +37,23 @@ const App: React.FC = () => {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+
+  const fetchTickets = async () => {
+    try {
+      setLoading(true);
+      const response = await apiClient.get('/tickets');
+      setTickets(response.data);
+      setError(null);
+    } catch (err: any) {
+      console.error("Error fetching tickets:", err);
+      setError(err.response?.data?.detail || err.message || "Failed to load tickets.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchTickets = async () => {
-      try {
-        setLoading(true);
-        // Assuming your FastAPI ticket route doesn't strictly need JWT if we are testing,
-        // or we mock it if it fails. The instructions say to trigger apiClient.get('/tickets')
-        const response = await apiClient.get('/tickets');
-        setTickets(response.data);
-        setError(null);
-      } catch (err: any) {
-        console.error("Error fetching tickets:", err);
-        setError(err.response?.data?.detail || err.message || "Failed to load tickets.");
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchTickets();
   }, []);
 
@@ -95,28 +95,23 @@ const App: React.FC = () => {
                       <th className="px-6 py-4 font-semibold">Description</th>
                       <th className="px-6 py-4 font-semibold text-center">Priority</th>
                       <th className="px-6 py-4 font-semibold text-center">Status</th>
+                      <th className="px-6 py-4 font-semibold text-center">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-700/50">
                     {tickets.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
+                        <td colSpan={7} className="px-6 py-12 text-center text-slate-500">
                           No active tickets found in the queue.
                         </td>
                       </tr>
                     ) : (
                       tickets.map((ticket) => (
                         <tr key={ticket.id} className="hover:bg-slate-700/30 transition-colors duration-200">
-                          <td className="px-6 py-4 font-medium text-slate-300">
-                            {ticket.ticket_no}
-                          </td>
-                          <td className="px-6 py-4 text-slate-300">
-                            {ticket.category}
-                          </td>
-                          <td className="px-6 py-4 text-slate-400 font-mono text-xs">
-                            MC-{ticket.maxis_centre_id}
-                          </td>
-                          <td className="px-6 py-4 text-slate-400 truncate max-w-xs">
+                          <td className="px-6 py-4 font-medium text-slate-300">{ticket.ticket_no}</td>
+                          <td className="px-6 py-4 text-slate-300">{ticket.category}</td>
+                          <td className="px-6 py-4 text-slate-400 font-mono text-xs">MC-{ticket.maxis_centre_id}</td>
+                          <td className="px-6 py-4 text-slate-400 truncate max-w-xs" title={ticket.description}>
                             {ticket.description || "No description provided."}
                           </td>
                           <td className="px-6 py-4 text-center">
@@ -124,6 +119,15 @@ const App: React.FC = () => {
                           </td>
                           <td className="px-6 py-4 text-center">
                             <StatusBadge status={ticket.status} />
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            {ticket.status !== 'resolved' ? (
+                              <button onClick={() => setSelectedTicket(ticket)} className="px-3 py-1.5 bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 hover:bg-indigo-600 hover:text-white rounded-lg text-xs font-semibold transition-all">
+                                Resolve
+                              </button>
+                            ) : (
+                              <span className="text-slate-600 text-xs font-medium">Completed</span>
+                            )}
                           </td>
                         </tr>
                       ))
@@ -135,6 +139,17 @@ const App: React.FC = () => {
           )}
         </main>
       </div>
+
+      {/* Submission Modal Layer */}
+      {selectedTicket && (
+        <ServiceReportModal
+          ticketId={selectedTicket.id}
+          ticketNo={selectedTicket.ticket_no}
+          maxisCentreId={selectedTicket.maxis_centre_id}
+          onClose={() => setSelectedTicket(null)}
+          onSuccess={fetchTickets}
+        />
+      )}
     </div>
   );
 };
